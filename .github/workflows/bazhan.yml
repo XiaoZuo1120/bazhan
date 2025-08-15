@@ -1,47 +1,36 @@
-name: clone site
+name: Website Mirror
 
 on:
   workflow_dispatch:
-      inputs:
-        URL:
-             required: true
-  push:
-    branches:
-      - master
+    inputs:
+      url:
+        description: 'URL to mirror (required)'
+        required: true
+        default: 'https://example.com'
+      target_dir:
+        description: 'Target directory for mirrored website'
+        required: false
+        default: 'mirrored_site'
 
 jobs:
-  build:
+  mirror-website:
     runs-on: ubuntu-latest
     steps:
-      - name: do the work
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Create target directory
+        run: mkdir -p "${{ github.event.inputs.target_dir }}"
+        
+      - name: Mirror website with wget
         run: |
-          set -ex
-          echo "### setting up git repo and pushing change... ###"
-          pwd
-          ls -lhA
-          sudo timedatectl set-timezone "Asia/Shanghai"
-          mkdir -p ~/.ssh/
-          echo "${{ secrets.SITECOPY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
-          git config --global user.email "ci@github.io"
-          git config --global user.name "ci"
-          
-          
-          echo "### cloning website ... ###"
-          #sudo apt install -y wget 
-          #wget --mirror --convert-links --adjust-extension --page-requisites --no-parent $(tail -n1 urls.txt|cut -d " " -f1) >res.txt
-          sudo apt update -y
-          sudo apt install -y wget
-          mkdir ${{github.event.inputs.URL}}
-          cd ${{github.event.inputs.URL}}
-          wget -r -p -np -k –restrict-file-names=nocontrol ${{github.event.inputs.URL}}
-          echo "### cloning website done ###"
-          echo "### push changes ###"
-          
-          
-          git add -A
-          git commit -m "update  site" --allow-empty
-          git push
-          rm -rf ~/.ssh/          
+          wget -r -p -np -k --restrict-file-names=nocontrol \
+            -P "${{ github.event.inputs.target_dir }}" \
+            "${{ github.event.inputs.url }}"
+        
+      - name: Archive mirrored site
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: mirrored-website
+          path: ${{ github.event.inputs.target_dir }}
