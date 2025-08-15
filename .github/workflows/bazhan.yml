@@ -1,4 +1,4 @@
-name: Website Mirror
+name: HTTrack Website Mirror to Release
 
 on:
   workflow_dispatch:
@@ -7,30 +7,53 @@ on:
         description: 'URL to mirror (required)'
         required: true
         default: 'https://example.com'
-      target_dir:
-        description: 'Target directory for mirrored website'
+      release_tag:
+        description: 'Release tag (e.g., v1.0.0 or latest)'
+        required: true
+        default: 'latest'
+      project_name:
+        description: 'Project name for HTTrack (optional)'
         required: false
-        default: 'mirrored_site'
+        default: 'website-mirror'
 
 jobs:
-  mirror-website:
+  mirror-and-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for creating/releases
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Create target directory
-        run: mkdir -p "${{ github.event.inputs.target_dir }}"
-        
-      - name: Mirror website with wget
+      - name: Setup HTTrack
         run: |
-          wget -r -p -np -k --restrict-file-names=nocontrol \
-            -P "${{ github.event.inputs.target_dir }}" \
-            "${{ github.event.inputs.url }}"
+          sudo apt-get update
+          sudo apt-get install -y httrack p7zip-full
+          
+      - name: Mirror website with HTTrack
+        run: |
+          httrack "${{ github.event.inputs.url }}" \
+            -O "${{ github.event.inputs.project_name }}" \
+            --mirrorlinks 
+        env:
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+      
+      - name: Compress to 7z
+        run: |
+          7z a -t7z website-mirror.7z "${{ github.event.inputs.project_name }}/"
         
-      - name: Archive mirrored site
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Create or Update Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
         with:
-          name: mirrored-website
-          path: ${{ github.event.inputs.target_dir }}
+          tag_name: ${{ github.event.inputs.release_tag }}
+          name: Website Mirror for ${{ github.event.inputs.url }}
+          body: |
+            Automated mirror of ${{ github.event.inputs.url }}
+            Created at $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+            Project name: ${{ github.event.inputs.project_name }}
+          files: website-mirror.7z
+          overwrite: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
