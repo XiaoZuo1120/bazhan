@@ -1,4 +1,4 @@
-name: HTTrack Website Mirror to Release
+name: Wget Website Mirror to Release
 
 on:
   workflow_dispatch:
@@ -11,37 +11,34 @@ on:
         description: 'Release tag (e.g., v1.0.0 or latest)'
         required: true
         default: 'latest'
-      project_name:
-        description: 'Project name for HTTrack (optional)'
-        required: false
-        default: 'website-mirror'
 
 jobs:
   mirror-and-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Required for creating/releases
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Setup HTTrack
+      - name: Setup 7z
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+        
+      - name: Mirror website with wget
         run: |
-          sudo apt-get update
-          sudo apt-get install -y httrack p7zip-full
-          
-      - name: Mirror website with HTTrack
+          wget -r -p -np -k --restrict-file-names=nocontrol "${{ github.event.inputs.url }}"
+        
+      - name: Identify mirrored directory
+        id: find_dir
         run: |
-          httrack "${{ github.event.inputs.url }}" \
-            -O "${{ github.event.inputs.project_name }}" \
-            --mirrorlinks 
-        env:
-          LC_ALL: C.UTF-8
-          LANG: C.UTF-8
-      
+          # Find the top-level directory created by wget (usually the domain name)
+          DIR=$(find . -maxdepth 1 -type d -not -path '*/\.*' -not -path "." | head -n 1 | xargs basename)
+          echo "mirrored_dir=$DIR" >> $GITHUB_OUTPUT
+          echo "Mirrored directory: $DIR"
+        
       - name: Compress to 7z
         run: |
-          7z a -t7z website-mirror.7z "${{ github.event.inputs.project_name }}/"
+          7z a -t7z website-mirror.7z "${{ steps.find_dir.outputs.mirrored_dir }}/"
         
       - name: Create or Update Release
         id: create_release
@@ -52,7 +49,7 @@ jobs:
           body: |
             Automated mirror of ${{ github.event.inputs.url }}
             Created at $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-            Project name: ${{ github.event.inputs.project_name }}
+            Mirrored directory: ${{ steps.find_dir.outputs.mirrored_dir }}
           files: website-mirror.7z
           overwrite: true
         env:
