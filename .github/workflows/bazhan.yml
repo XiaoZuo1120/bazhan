@@ -1,4 +1,4 @@
-name: Wget Website Mirror to Release
+name: Wget Website Mirror to Release (Error Tolerant)
 
 on:
   workflow_dispatch:
@@ -24,21 +24,29 @@ jobs:
       - name: Setup 7z
         run: sudo apt-get update && sudo apt-get install -y p7zip-full
         
-      - name: Mirror website with wget
+      - name: Mirror website with wget (ignore errors)
+        id: wget_step
         run: |
-          wget -r -p -np -k --restrict-file-names=nocontrol "${{ github.event.inputs.url }}"
-        
-      - name: Identify mirrored directory
-        id: find_dir
-        run: |
-          # Find the top-level directory created by wget (usually the domain name)
+          # Run wget and capture exit code
+          wget -r -p -np -k --restrict-file-names=nocontrol "${{ github.event.inputs.url }}" || true
+          
+          # Find the top-level directory created by wget
           DIR=$(find . -maxdepth 1 -type d -not -path '*/\.*' -not -path "." | head -n 1 | xargs basename)
           echo "mirrored_dir=$DIR" >> $GITHUB_OUTPUT
+          echo "WGET_EXIT_CODE=$? (ignored)" >> $GITHUB_OUTPUT
           echo "Mirrored directory: $DIR"
         
       - name: Compress to 7z
+        if: steps.wget_step.outputs.mirrored_dir != ''
         run: |
-          7z a -t7z website-mirror.7z "${{ steps.find_dir.outputs.mirrored_dir }}/"
+          7z a -t7z website-mirror.7z "${{ steps.wget_step.outputs.mirrored_dir }}/"
+        
+      - name: Create empty archive if no content
+        if: steps.wget_step.outputs.mirrored_dir == ''
+        run: |
+          echo "No content was mirrored. Creating empty archive with error note." > error.txt
+          7z a -t7z website-mirror.7z error.txt
+          rm error.txt
         
       - name: Create or Update Release
         id: create_release
@@ -49,7 +57,11 @@ jobs:
           body: |
             Automated mirror of ${{ github.event.inputs.url }}
             Created at $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-            Mirrored directory: ${{ steps.find_dir.outputs.mirrored_dir }}
+            Mirrored directory: ${{ steps.wget_step.outputs.mirrored_dir }}
+            Wget exit code: ${{ steps.wget_step.outputs.WGET_EXIT_CODE }} (ignored)
+            
+            Note: Wget sometimes returns non-zero exit codes even when mirroring succeeds.
+            This workflow ignores wget errors to ensure the release is created.
           files: website-mirror.7z
           overwrite: true
         env:
